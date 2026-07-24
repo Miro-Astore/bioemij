@@ -1,0 +1,44 @@
+number_of_images: 1
+data_sign: "light-on-dark"
+
+#Instrument config
+pixel_size: 2.0
+box_size: 128
+pad_scale: 1.0
+voltage_in_kilovolts: 300.0
+amplitude_contrast_ratio: 0.07
+spherical_aberration_in_mm: 2.7
+
+# Transfer Theory
+offset_x_in_angstroms: 0.0
+offset_y_in_angstroms: 0.0
+rotation_quat_wxyz: [0.680, 0.272, 0.408, 0.544]
+
+# Transfer Function
+# lists represent a range
+# for uniform random sampling
+defocus_in_angstroms: 5000 #[2500, 7500]
+astigmatism_in_angstroms: 500 #[100, 1000]
+astigmatism_angle_in_degrees: 0.0
+phase_shift: 0.0
+ctf_scale_factor: 1.0
+envelope_b_factor: 0.0
+
+# Noise and randomness
+noise_snr: 0.1 # high SNR so we can actually see something...
+mask_radius: 60
+mask_rolloff_width: 1.0
+rng_seed: 0
+
+# Output parameters
+path_to_relion_project: image_rot_closed_SNR0.1
+path_to_starfile: image_rot_closed_SNR0.1/starfile.star
+images_per_file: 1
+batch_size_for_generation: 1 # for parallel computation
+overwrite: True
+
+atomic_models_params:
+  atomic_models_probabilities:
+  - 1.0
+  path_to_atomic_models:
+  - /mnt/home/fthomasen/ceph/RNA_ensemble_optimization_data/P4_P6_synthetic_data_CGmodel/open_closed_structures/gmm_frame198_closed.npz

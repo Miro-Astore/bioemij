@@ -1,0 +1,8 @@
+#Ground truth pose parameters
+
+Translation:
+  offset_x_in_angstroms: 40.0
+  offset_y_in_angstroms: -50.0
+
+Rotation:
+  wxyz: [0.68041384, 0.27216554, 0.4082483, 0.54433113]

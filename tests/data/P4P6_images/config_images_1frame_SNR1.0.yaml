@@ -1,0 +1,34 @@
+amplitude_contrast_ratio: 0.07
+astigmatism_angle_in_degrees: 0.0
+astigmatism_in_angstroms:
+- 100
+- 1000
+atomic_models_params:
+  atomic_models_probabilities:
+  - 1.0
+  path_to_atomic_models:
+  - /mnt/home/fthomasen/ceph/RNA_ensemble_optimization_data/P4_P6_synthetic_data_CGmodel/gmm_frame6436.npz
+batch_size_for_generation: 100
+box_size: 128
+ctf_scale_factor: 1.0
+data_sign: light-on-dark
+defocus_in_angstroms:
+- 10000
+- 15000
+envelope_b_factor: 0.0
+images_per_file: 100
+mask_radius: 60
+mask_rolloff_width: 1.0
+noise_snr: 1.0
+number_of_images: 100
+offset_x_in_angstroms: 0.0
+offset_y_in_angstroms: 0.0
+overwrite: true
+pad_scale: 1.0
+path_to_relion_project: /mnt/home/fthomasen/ceph/RNA_ensemble_optimization_data/P4_P6_synthetic_data_CGmodel/frame6436_images
+path_to_starfile: /mnt/home/fthomasen/ceph/RNA_ensemble_optimization_data/P4_P6_synthetic_data_CGmodel/frame6436_images/starfile.star
+phase_shift: 0.0
+pixel_size: 2.0
+rng_seed: 0
+spherical_aberration_in_mm: 2.7
+voltage_in_kilovolts: 300.0
