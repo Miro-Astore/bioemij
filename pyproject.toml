@@ -1,6 +1,7 @@
 [project]
 name = "bioemij"
 authors = [
+    {name = "Miro Astore", email = "miro.astore@gmail.com"},
     {name = "Frederik Emil Thomasen"},
     {name = "David Silva Sanchez", email = "david.silva@yale.edu"},
     {name = "Geoffrey Woollard"},
@@ -34,6 +35,7 @@ dependencies = [
     "mdtraj",
     "tqdm",
     "cryojax>=0.5.5",
+    "cryospax",
     "dm-pix",
     "optax",
     "optimistix"
