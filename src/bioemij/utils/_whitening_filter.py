@@ -5,7 +5,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from cryojax.dataset import RelionParticleDataset
+from cryospax import RelionParticleDataset
 from cryojax.jax_util import filter_bmap
 from cryojax.simulator import BasicImageConfig
 from jaxtyping import Array, Float

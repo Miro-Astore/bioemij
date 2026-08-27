@@ -7,7 +7,7 @@ import cryojax.simulator as cxs
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from cryojax.dataset import (
+from cryospax import (
     RelionParticleDataset,
     RelionParticleParameterFile,
     simulate_particle_stack,
@@ -28,7 +28,7 @@ def make_relion_parameter_file(
     This functions writes to disk a starfile containing the
     generated particle parameters. The starfile is saved to the path
     specified in the configuration. The function also returns a
-    `cryojax.dataset.RelionParticleParameterFile` object that can be used to read the
+    `cryospax.RelionParticleParameterFile` object that can be used to read the
     starfile and access the particle parameters.
 
     **Arguments:**
