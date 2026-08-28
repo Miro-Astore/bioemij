@@ -6,6 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import optimistix as optx
+from cryojax.constants import PengScatteringFactorParameters
 from cryojax.io import read_atoms_from_pdb
 from cryojax.jax_util import make_filter_spec
 from jaxtyping import Array, Float, Int
@@ -27,9 +28,8 @@ class Gaussian3D(eqx.Module, strict=True):  # todo: strict equal true
             variances=jnp.exp(self.log_variance) * ones,
         )
 
-        return gmm_potential.to_real_voxel_grid(
-            self.shape,
-            self.voxel_size,
+        return cxs.GaussianMixtureRenderFn(self.shape, self.voxel_size)(
+            gmm_potential, outputs_real_space=True
         )
 
     def save(self, filename: str | Path, overwrite: bool = False):
@@ -112,20 +112,20 @@ def _where_gaussian3D_opt(gaussian3d: Gaussian3D):
 
 def _generate_target_volume(reference_pdb_file, box_size, voxel_size):
     # read in atoms
-    atom_positions, atom_types, b_factors = read_atoms_from_pdb(
-        reference_pdb_file, center=True, loads_b_factors=True
+    atom_positions, atomic_numbers, atomic_properties = read_atoms_from_pdb(
+        reference_pdb_file, center=True, loads_properties=True
     )
-    scattering_factor_parameters = cxs.PengScatteringFactorParameters(atom_types)
+    scattering_factor_parameters = PengScatteringFactorParameters(atomic_numbers)
 
     # make target via peng volume
-    atomic_potential = cxs.PengAtomicVolume.from_tabulated_parameters(
-        atom_positions, scattering_factor_parameters, b_factors
+    atomic_potential = cxs.GaussianMixtureVolume.from_tabulated_parameters(
+        atom_positions,
+        scattering_factor_parameters,
+        extra_b_factors=atomic_properties["b_factors"],
     )
 
-    return atomic_potential.to_real_voxel_grid(
-        (box_size, box_size, box_size),
-        voxel_size,
-    )
+    render_fn = cxs.GaussianMixtureRenderFn((box_size, box_size, box_size), voxel_size)
+    return render_fn(atomic_potential, outputs_real_space=True)
 
 
 def _generate_initial_model(

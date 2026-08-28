@@ -51,7 +51,7 @@ def make_relion_parameter_file(
     parameter_file = RelionParticleParameterFile(
         path_to_starfile=config_dict["path_to_starfile"],
         mode="w",
-        exists_ok=config_dict["overwrite"],
+        exist_ok=config_dict["overwrite"],
     )
     parameter_file.append(particle_parameters)
 
@@ -124,7 +124,7 @@ def simulate_relion_dataset(
         parameter_file=parameter_file,
         path_to_relion_project=path_to_relion_project,
         mode="w",
-        mrcfile_settings={"overwrite": overwrite},
+        mrcfile_options={"overwrite": overwrite},
     )
 
     simulate_particle_stack(
@@ -242,7 +242,7 @@ def _make_particle_parameters(key: PRNGKeyArray, config: dict) -> Dict:
 
     # ... build the CTF
     transfer_theory = cxs.ContrastTransferTheory(
-        ctf=cxs.AberratedAstigmaticCTF(
+        ctf=cxs.AstigmaticCTF(
             defocus_in_angstroms=defocus_in_angstroms,
             astigmatism_in_angstroms=astigmatism_in_angstroms,
             astigmatism_angle=astigmatism_angle,

@@ -112,14 +112,13 @@ def _read_atomic_models_from_pdb(
             )
 
         else:
-            _, atom_types = read_atoms_from_pdb(
+            _, atomic_numbers = read_atoms_from_pdb(
                 atomic_models_filenames[i],
                 center=True,
-                loads_b_factors=False,
                 selection_string=selection_string,
             )
 
-            scattering_factors = PengScatteringFactorParameters(atom_types)
+            scattering_factors = PengScatteringFactorParameters(atomic_numbers)
             amplitudes = scattering_factors.a
             variances = b_factor_to_variance(scattering_factors.b)
 

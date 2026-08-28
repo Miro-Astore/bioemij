@@ -1,9 +1,10 @@
-import cryojax.ndimage as cxim
+import cryojax.simulator as cxs
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
-from cryojax.coordinates import make_coordinate_grid, make_frequency_grid
+import pytest
+from cryojax.ndimage import make_coordinate_grid, PhaseShiftFFT
 
 from bioemij.ensemble_optimization._pose_search import (
     compute_correlation_at_optimal_offset,
@@ -18,9 +19,10 @@ def make_synthetic_2D_gaussian_image(shape, offset, gaussian_std, coordinate_gri
         )
     )  # Gaussian blob
 
-    frequency_grid = make_frequency_grid(shape, grid_spacing=1.0, outputs_rfftfreqs=True)
-    shift_op = cxim.PhaseShiftFFT(offset=offset, frequency_grid=frequency_grid)
-    image_shifted = cxim.irfftn(shift_op(cxim.rfftn(image)))
+    # `PhaseShiftFFT` infers the frequency grid from the image shape, and takes
+    # `offset` in pixel units when `pixel_size` is left at its default of 1.0.
+    shift_op = PhaseShiftFFT(offset=jnp.asarray(offset, dtype=float))
+    image_shifted = jnp.fft.irfftn(shift_op(jnp.fft.rfftn(image)), s=shape)
     return image, image_shifted
 
 
@@ -111,3 +113,53 @@ def test_grad_through_phase_correlation_max_wrt_spread():
 
     # Optionally ensure it's not NaN
     assert not jnp.isnan(g)
+
+
+@pytest.mark.parametrize(
+    "offset_in_angstroms", [(0.0, 0.0), (8.0, -6.0), (-12.0, 20.0), (4.0, 4.0)]
+)
+def test_optimal_offset_matches_pose_offset_in_angstroms(offset_in_angstroms):
+    """The recovered offset must match a `cryojax` pose offset in angstroms.
+
+    This pins down the sign, axis order and units of the offset returned by
+    `compute_correlation_at_optimal_offset`, which `HierarchicalSO3GridSearch`
+    feeds straight into `QuaternionPose.offset_{x,y}_in_angstroms`.
+    """
+    pixel_size = 2.0
+    n_atoms = 30
+    positions = jax.random.normal(jax.random.key(0), (n_atoms, 3)) * 12.0
+    volume = cxs.GaussianMixtureVolume(
+        positions,
+        amplitudes=jnp.ones((n_atoms, 1)) * 20.0,
+        variances=jnp.ones((n_atoms, 1)) * 8.0,
+    )
+    image_config = cxs.BasicImageConfig(
+        shape=(64, 64), pixel_size=pixel_size, voltage_in_kilovolts=300.0
+    )
+    transfer_theory = cxs.ContrastTransferTheory(
+        ctf=cxs.AstigmaticCTF(defocus_in_angstroms=10000.0)
+    )
+    wxyz = jnp.array([0.5, 0.5, 0.5, 0.5])
+
+    def simulate(offset_x, offset_y):
+        pose = cxs.QuaternionPose(
+            wxyz=wxyz,
+            offset_x_in_angstroms=offset_x,
+            offset_y_in_angstroms=offset_y,
+        )
+        return cxs.make_image_model(
+            volume, image_config, pose, transfer_theory, normalizes_signal=True
+        ).simulate()
+
+    image_ref = simulate(0.0, 0.0)
+    image_shifted = simulate(*offset_in_angstroms)
+
+    correlation, optimal_offset = compute_correlation_at_optimal_offset(
+        image_shifted,
+        image_ref,
+        image_config.get_coordinate_grid(physical=True),
+        corr_mask=None,
+    )
+    # the offset is read off a pixel grid, so it is exact only to one pixel
+    np.testing.assert_allclose(optimal_offset, offset_in_angstroms, atol=pixel_size)
+    assert np.isclose(correlation, 1.0, atol=1e-2)

@@ -34,7 +34,7 @@ dependencies = [
     "pydantic",
     "mdtraj",
     "tqdm",
-    "cryojax>=0.5.5",
+    "cryojax==0.6.0rc1",
     "cryospax",
     "dm-pix",
     "optax",

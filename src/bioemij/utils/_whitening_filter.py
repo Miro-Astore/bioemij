@@ -34,7 +34,7 @@ def apply_filter(image, filter_array):
     """Apply a Fourier-domain filter to a real-space image."""
     if filter_array is None:
         return image
-    return cxim.ifftn(cxim.fftn(image) * filter_array).real
+    return jnp.fft.ifftn(jnp.fft.fftn(image) * filter_array).real
 
 
 def compute_whitening_filter(
@@ -89,8 +89,8 @@ def compute_whitening_filter(
         int(image_config.shape[0] * padding_factor),
         int(image_config.shape[1] * padding_factor),
     )
-    whitening_filter = cxim.fftn(
-        cxim.pad_to_shape(cxim.ifftn(whitening_filter), padded_shape)
+    whitening_filter = jnp.fft.fftn(
+        cxim.pad_to_shape(jnp.fft.ifftn(whitening_filter), padded_shape)
     ).real
     whitening_filter = whitening_filter.at[0, 0].set(0.0)
 
@@ -104,7 +104,7 @@ def _compute_batch_stats(
 ) -> tuple[Array, Array]:
     images = images * whitening_mask[None, ...]
     batch_sum = images.sum()
-    batch_psd = jnp.sum(jnp.abs(cxim.fftn(images, axes=(-2, -1))) ** 2, axis=0)
+    batch_psd = jnp.sum(jnp.abs(jnp.fft.fftn(images, axes=(-2, -1))) ** 2, axis=0)
     return batch_sum, batch_psd
 
 

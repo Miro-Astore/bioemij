@@ -1,6 +1,5 @@
 from typing import Optional
 
-import cryojax.ndimage as cxim
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
@@ -55,7 +54,11 @@ def _compute_cross_correlation_image(image_shifted, image_ref):
     """Compute cross-correlation image between two input images.
     Using Fourier's convolution theorem.
     """
-    image_shifted_fft = cxim.rfftn(image_shifted)
-    image_ref_fft = cxim.rfftn(image_ref)
+    image_shifted_fft = jnp.fft.rfftn(image_shifted)
+    image_ref_fft = jnp.fft.rfftn(image_ref)
     cross_corr_fft = image_shifted_fft * image_ref_fft.conj()
-    return cxim.irfftn(cross_corr_fft)
+    # `irfftn` returns the correlation with zero shift in the corner, so
+    # `fftshift` it to match the centered convention of `make_coordinate_grid`.
+    return jnp.fft.fftshift(
+        jnp.fft.irfftn(cross_corr_fft, s=image_ref.shape), axes=(-2, -1)
+    )

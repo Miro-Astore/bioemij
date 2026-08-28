@@ -16,6 +16,7 @@ def path_to_atomic_models(sample_path_to_pdb1, sample_path_to_pdb2):
     return [sample_path_to_pdb1, sample_path_to_pdb2]
 
 
+@pytest.mark.parametrize("loads_b_factors", [True, False])
 @pytest.mark.parametrize(
     "selection_string",
     [
@@ -23,12 +24,14 @@ def path_to_atomic_models(sample_path_to_pdb1, sample_path_to_pdb2):
         "name CA",
     ],
 )
-def test_load_atomic_models(path_to_atomic_models, selection_string):
+def test_load_atomic_models(path_to_atomic_models, selection_string, loads_b_factors):
     """
     Test loading all atoms from the atomic models.
     """
     atomic_models = read_atomic_models(
-        path_to_atomic_models, selection_string=selection_string, loads_b_factors=True
+        path_to_atomic_models,
+        selection_string=selection_string,
+        loads_b_factors=loads_b_factors,
     )
 
     atom_positions = mdtraj.load(
@@ -50,6 +53,7 @@ def test_load_atomic_models(path_to_atomic_models, selection_string):
     assert len(atomic_models) == len(path_to_atomic_models)
 
 
+@pytest.mark.parametrize("loads_b_factors", [True, False])
 @pytest.mark.parametrize(
     "selection_string",
     [
@@ -57,12 +61,14 @@ def test_load_atomic_models(path_to_atomic_models, selection_string):
         "name CA",
     ],
 )
-def test_load_as_potentials(path_to_atomic_models, selection_string):
+def test_load_as_potentials(path_to_atomic_models, selection_string, loads_b_factors):
     """
     Test loading all atoms from the atomic models.
     """
     potentials = load_atomic_models_as_volumes(
-        path_to_atomic_models, selection_string=selection_string, loads_b_factors=True
+        path_to_atomic_models,
+        selection_string=selection_string,
+        loads_b_factors=loads_b_factors,
     )
 
     atom_positions = mdtraj.load(

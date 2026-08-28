@@ -5,7 +5,7 @@ from glob import glob
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import pandas as pd
-from cryojax.dataset import RelionParticleParameterFile, RelionParticleStackDataset
+from cryospax import RelionParticleDataset, RelionParticleParameterFile
 
 from bioemij.ensemble_optimization import (
     HierarchicalSO3GridSearch,
@@ -128,9 +128,10 @@ def benchmark_pose_finder(data_dir, odir):
             logger.info(f"Ground truth rotation {ground_truth_quat}")
 
             logger.info("Creating dataset and dataloader")
-            dataset = RelionParticleStackDataset(
-                RelionParticleParameterFile(f"{images_dir}/starfile.star"),
+            dataset = RelionParticleDataset(
+                RelionParticleParameterFile(f"{images_dir}/starfile.star", mode="r"),
                 f"{images_dir}/",
+                mode="r",
             )
 
             logger.info("Setting up topology and forcefield")
@@ -156,15 +157,19 @@ def benchmark_pose_finder(data_dir, odir):
                 n_rounds=5,
                 n_candidates=40,
             )
+            particle_stack = dataset[0]
+            observed_image = particle_stack["images"]
             image_model = make_image_model_from_gmm(
                 structure=positions,
-                relion_stack=dataset[0],
+                observed_image=observed_image,
+                relion_stack=particle_stack,
                 amplitudes=gaussian_amplitudes,
                 variances=gaussian_variances,
                 pose_grid_search=pose_search,
+                whitening_filter=None,
+                whiten_calculated_images=False,
             )
             simulated_image = image_model.simulate()
-            observed_image = dataset[0]["images"]
             fname = os.path.join(
                 odir, f"data/data_{pose_type}_snr{snr}_rmsd{rmsd_nm}nm.npz"
             )

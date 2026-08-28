@@ -1,5 +1,5 @@
 from functools import partial
-from typing import Optional
+from typing import Any, Optional
 
 import equinox as eqx
 import jax
@@ -10,6 +10,41 @@ from jaxtyping import Array, Float
 from ...._custom_types import ConstantT, LossFn, ParticleStackInfo, PerParticleT
 from ....simulator._dilated_mask import DilatedMask
 from ..._pose_search import HierarchicalSO3GridSearch
+
+
+# `in_axes` for mapping a `ParticleStackInfo` over its leading particle axis.
+# `cryospax` returns one `image_config` shared by the whole stack (its `pixel_size`
+# and `voltage_in_kilovolts` are scalars), while `pose`, `transfer_theory` and
+# `images` carry a per-particle leading axis. So `image_config` must not be mapped.
+_PARTICLE_STACK_IN_AXES = {
+    "parameters": {
+        "image_config": None,
+        "pose": eqx.if_array(0),
+        "transfer_theory": eqx.if_array(0),
+    },
+    "images": eqx.if_array(0),
+}
+
+
+def _split_shared_image_config(
+    relion_stack: ParticleStackInfo,
+) -> tuple[dict, Any]:
+    """Split a particle stack into its per-particle part and its shared
+    `image_config`, so that only the former is batched over.
+    """
+    if relion_stack["parameters"] is None:
+        raise ValueError("relion_stack must have non None 'parameters' field.")
+    parameters = dict(relion_stack["parameters"])
+    image_config = parameters.pop("image_config")
+    return {"parameters": parameters, "images": relion_stack["images"]}, image_config
+
+
+def _join_shared_image_config(per_particle_stack: dict, image_config: Any) -> dict:
+    """Inverse of `_split_shared_image_config`."""
+    return {
+        "parameters": {**per_particle_stack["parameters"], "image_config": image_config},
+        "images": per_particle_stack["images"],
+    }
 
 
 @partial(
@@ -37,7 +72,7 @@ from ..._pose_search import HierarchicalSO3GridSearch
     eqx.filter_vmap,
     in_axes=(
         None,
-        eqx.if_array(0),
+        _PARTICLE_STACK_IN_AXES,
         None,
         None,
         None,
@@ -134,7 +169,7 @@ def _compute_likelihood_matrix_batched(
         image_to_structure_log_likelihood_fn,
         in_axes=(
             None,
-            eqx.if_array(0),
+            _PARTICLE_STACK_IN_AXES,
             None,
             None,
             None,
@@ -151,11 +186,15 @@ def _compute_likelihood_matrix_batched(
         out_axes=0,
     )
 
+    # `filter_bmap` slices every array leaf of `xs` along axis 0, so the shared
+    # `image_config` is held out of the batched pytree and re-attached inside.
+    per_particle_stack, shared_image_config = _split_shared_image_config(relion_stack)
+
     map_over_structures = eqx.filter_vmap(
         lambda w, rs, ppa, amp, var: filter_bmap(
             lambda x: map_over_images(  # see in_axes above
                 w,
-                x[0],
+                _join_shared_image_config(x[0], shared_image_config),
                 amp,
                 var,
                 dilated_mask,
@@ -179,7 +218,7 @@ def _compute_likelihood_matrix_batched(
     return filter_bmap(
         lambda x: map_over_structures(
             x[0],
-            relion_stack,
+            per_particle_stack,
             per_particle_args,
             x[1],
             x[2],
