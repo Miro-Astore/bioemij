@@ -62,6 +62,12 @@ def _loss_for_grid_search_single(
     return -correlation, optimal_offset
 
 
+_loss_for_grid_search_vmapped = eqx.filter_vmap(
+    _loss_for_grid_search_single,
+    in_axes=(0, None, None, None, None, None, None, None, None, None),
+)
+
+
 def _loss_for_grid_search(
     quats: Float[Array, "N 4"],
     volume: cxs.AbstractVolumeRepresentation,
@@ -77,14 +83,20 @@ def _loss_for_grid_search(
     batch_size: int,
 ) -> Tuple[Float[Array, " N"], Float[Array, "N 2"]]:
     """
-    Evaluates `_loss_for_grid_search_single` over `quats`, processing
-    `batch_size` quaternions at a time (via `filter_bmap`) instead of
-    vmapping the whole grid at once. This keeps memory use roughly flat
-    as the SO(3) grid grows, at the cost of running in sequential chunks.
+    Evaluates `_loss_for_grid_search_single` over `quats`, vmapping only
+    `batch_size` quaternions at a time (via `filter_bmap`, looping with
+    `jax.lax.scan`) instead of vmapping the whole grid at once. This keeps
+    memory use roughly flat as the SO(3) grid grows, at the cost of running
+    in sequential chunks.
+
+    Note `filter_bmap`'s callback is handed a whole chunk of shape
+    `(batch_size, 4)` at a time (not a single quaternion), so it must itself
+    be vmapped over that leading axis -- hence `_loss_for_grid_search_vmapped`
+    rather than calling `_loss_for_grid_search_single` directly.
     """
     return filter_bmap(
-        lambda quat: _loss_for_grid_search_single(
-            quat,
+        lambda quat_chunk: _loss_for_grid_search_vmapped(
+            quat_chunk,
             volume,
             target_image,
             image_config,
