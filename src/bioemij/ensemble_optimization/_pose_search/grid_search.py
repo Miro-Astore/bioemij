@@ -4,6 +4,7 @@ import cryojax.simulator as cxs
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from cryojax.jax_util import filter_bmap
 from jaxtyping import Array, Float
 
 from ...utils import apply_filter as _apply_filter
@@ -15,8 +16,7 @@ from .geometry import (
 from .shift import compute_correlation_at_optimal_offset
 
 
-@eqx.filter_vmap(in_axes=(0, None, None, None, None, None, None, None, None, None))
-def _loss_for_grid_search(
+def _loss_for_grid_search_single(
     quat: Float[Array, "4"],
     volume: cxs.AbstractVolumeRepresentation,
     target_image: Float[Array, "H W"],
@@ -62,6 +62,44 @@ def _loss_for_grid_search(
     return -correlation, optimal_offset
 
 
+def _loss_for_grid_search(
+    quats: Float[Array, "N 4"],
+    volume: cxs.AbstractVolumeRepresentation,
+    target_image: Float[Array, "H W"],
+    image_config: cxs.BasicImageConfig,
+    transfer_theory: cxs.ContrastTransferTheory,
+    corr_mask: Optional[Float[Array, "H W"]],
+    whitening_filter: Optional[Float[Array, "H W"]],
+    whiten_calculated_images: bool,
+    lowpass_filter: Optional[Float[Array, "H W"]],
+    highpass_filter: Optional[Float[Array, "H W"]],
+    *,
+    batch_size: int,
+) -> Tuple[Float[Array, " N"], Float[Array, "N 2"]]:
+    """
+    Evaluates `_loss_for_grid_search_single` over `quats`, processing
+    `batch_size` quaternions at a time (via `filter_bmap`) instead of
+    vmapping the whole grid at once. This keeps memory use roughly flat
+    as the SO(3) grid grows, at the cost of running in sequential chunks.
+    """
+    return filter_bmap(
+        lambda quat: _loss_for_grid_search_single(
+            quat,
+            volume,
+            target_image,
+            image_config,
+            transfer_theory,
+            corr_mask,
+            whitening_filter,
+            whiten_calculated_images,
+            lowpass_filter,
+            highpass_filter,
+        ),
+        quats,
+        batch_size=batch_size,
+    )
+
+
 class _HierSO3GridSearchCarry(eqx.Module):
     losses: Float[Array, " N"]
     quats: Float[Array, "N 4"]
@@ -87,6 +125,13 @@ class HierarchicalSO3GridSearch(eqx.Module):
         Base grid resolution for the SO3 grid.
     - `corr_mask`:
         Mask for the correlation image to focus on specific regions during the search.
+    - `grid_search_batch_size`:
+        Number of candidate quaternions to evaluate at once (via `filter_bmap`)
+        when scoring a round of the grid search. The base round evaluates
+        `12 * Nside**2 * 6 * Nside` quaternions (e.g. 576 at `base_grid_res=1`),
+        each requiring a full image simulation from `volume` -- lower this if
+        that round runs out of memory, at the cost of running in more
+        sequential chunks.
     """
 
     base_quats: Float[Array, "N 4"]
@@ -94,17 +139,27 @@ class HierarchicalSO3GridSearch(eqx.Module):
     n_candidates: int
     base_grid_res: int
     corr_mask: Optional[Float[Array, "H W"]]
+    grid_search_batch_size: int
 
-    def __init__(self, base_grid_res, n_rounds, n_candidates, corr_mask=None):
+    def __init__(
+        self,
+        base_grid_res,
+        n_rounds,
+        n_candidates,
+        corr_mask=None,
+        grid_search_batch_size=64,
+    ):
         assert base_grid_res >= 1, "Base grid must be at least 1."
         assert n_rounds >= 0, "Number of rounds must be non-negative."
         assert n_candidates >= 1, "Number of candidates must be at least 1."
+        assert grid_search_batch_size >= 1, "grid_search_batch_size must be at least 1."
 
         self.base_grid_res = base_grid_res
         self.base_quats = grid_SO3(base_grid_res)
         self.n_rounds = n_rounds
         self.n_candidates = n_candidates
         self.corr_mask = corr_mask
+        self.grid_search_batch_size = grid_search_batch_size
 
     def __call__(
         self,
@@ -154,6 +209,7 @@ class HierarchicalSO3GridSearch(eqx.Module):
             whiten_calculated_images,
             lowpass_filter,
             highpass_filter,
+            batch_size=self.grid_search_batch_size,
         )
 
         if self.n_rounds == 0:
@@ -183,6 +239,7 @@ class HierarchicalSO3GridSearch(eqx.Module):
                 whiten_calculated_images,
                 lowpass_filter,
                 highpass_filter,
+                batch_size=self.grid_search_batch_size,
             )
             carry = _HierSO3GridSearchCarry(
                 losses=losses,
@@ -207,6 +264,7 @@ class HierarchicalSO3GridSearch(eqx.Module):
                     whiten_calculated_images,
                     lowpass_filter,
                     highpass_filter,
+                    batch_size=self.grid_search_batch_size,
                 ),
                 init_val=carry,
             )
@@ -239,6 +297,8 @@ def _run_global_SO3_step(
     whiten_calculated_images: bool,
     lowpass_filter: Optional[Float[Array, "H W"]] = None,
     highpass_filter: Optional[Float[Array, "H W"]] = None,
+    *,
+    batch_size: int,
 ):
     quats, grid_indices = getbestneighbors_next_SO3(
         hier_grid_search_carry.losses,
@@ -258,6 +318,7 @@ def _run_global_SO3_step(
         whiten_calculated_images,
         lowpass_filter,
         highpass_filter,
+        batch_size=batch_size,
     )
     return _HierSO3GridSearchCarry(
         losses=losses,
