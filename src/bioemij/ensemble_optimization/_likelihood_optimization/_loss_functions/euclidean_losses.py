@@ -37,7 +37,8 @@ def likelihood_isotropic_gaussian(
     - `relion_stack`: A cryojax `ParticleStack` object.
     - `amplitudes`: The amplitudes for the GMM atomic volume representation.
     - `variances`: The variances for the GMM atomic volume representation.
-    - `dilated_mask`: An optional dilated mask to apply to the computed image.
+    - `dilated_mask`: An optional dilated mask, projected at the particle's pose.
+        Only the pixels inside that projection enter the fit and the likelihood.
     - `constant_args`: For this particular function the constant argument
         is the sign of the observed image. For typical Relion stacks this is -1.0.
         For data generated with cryoJAX this is 1.0.
@@ -86,17 +87,24 @@ def likelihood_isotropic_gaussian(
 
     if dilated_mask is not None:
         mask2d = dilated_mask.project(relion_stack["parameters"]["pose"])
+        in_mask = mask2d > 0.5
     else:
         mask2d = jnp.ones_like(computed_image)
+        in_mask = None
 
     computed_image = computed_image * mask2d
     observed_image = constant_args * observed_image * mask2d
 
-    scale, offset = compute_optimal_scale_and_offset(computed_image, observed_image)
-
-    return -jnp.sum((scale * computed_image - observed_image + offset) ** 2) / (
-        2 * noise_variance
+    # With a mask only the pixels inside it are data, so the fit and the sum
+    # run over those alone rather than over the zeros the mask leaves behind.
+    scale, offset = compute_optimal_scale_and_offset(
+        computed_image, observed_image, where=in_mask
     )
+    residual = scale * computed_image - observed_image + offset
+    if in_mask is not None:
+        residual = jnp.where(in_mask, residual, 0.0)
+
+    return -jnp.sum(residual**2) / (2 * noise_variance)
 
 
 def likelihood_isotropic_gaussian_marginalized(
@@ -125,7 +133,8 @@ def likelihood_isotropic_gaussian_marginalized(
     - `relion_stack`: A cryojax `ParticleStack` object.
     - `amplitudes`: The amplitudes for the GMM atomic volume representation.
     - `variances`: The variances for the GMM atomic volume representation.
-    - `dilated_mask`: An optional dilated mask to apply to the computed image.
+    - `dilated_mask`: An optional dilated mask, projected at the particle's pose.
+        Only the pixels inside that projection enter the fit and the likelihood.
     - `constant_args`: For this particular function the constant argument
         is the sign of the observed image. For typical Relion stacks this is -1.0.
         For data generated with cryoJAX this is 1.0.
@@ -168,15 +177,25 @@ def likelihood_isotropic_gaussian_marginalized(
 
     if dilated_mask is not None:
         mask2d = dilated_mask.project(relion_stack["parameters"]["pose"])
+        in_mask = mask2d > 0.5
     else:
         mask2d = jnp.ones_like(computed_image)
+        in_mask = None
 
     computed_image = computed_image * mask2d
     observed_image = constant_args * observed_image * mask2d
 
-    scale, offset = compute_optimal_scale_and_offset(computed_image, observed_image)
-    n_pixels = computed_image.size
-    loss = -n_pixels * jnp.log(
-        jnp.linalg.norm(scale * computed_image - observed_image + offset)
+    # With a mask only the pixels inside it are data. Counting the zeros outside
+    # it in `n_pixels` would multiply every log-likelihood difference by
+    # (image size / mask size) and make the per-image posteriors overconfident.
+    scale, offset = compute_optimal_scale_and_offset(
+        computed_image, observed_image, where=in_mask
     )
+    residual = scale * computed_image - observed_image + offset
+    if in_mask is None:
+        n_pixels = computed_image.size
+    else:
+        residual = jnp.where(in_mask, residual, 0.0)
+        n_pixels = jnp.sum(in_mask)
+    loss = -n_pixels * jnp.log(jnp.linalg.norm(residual))
     return loss
