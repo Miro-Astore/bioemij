@@ -144,6 +144,11 @@ class HierarchicalSO3GridSearch(eqx.Module):
         each requiring a full image simulation from `volume` -- lower this if
         that round runs out of memory, at the cost of running in more
         sequential chunks.
+    - `max_shift_in_angstroms`:
+        Largest in-plane offset, measured from the box centre, that the search may
+        assign. Without it the offset is read off the whole cross-correlation
+        image, so a neighbouring particle inside the box can win. `None` for no
+        limit.
     """
 
     base_quats: Float[Array, "N 4"]
@@ -152,6 +157,7 @@ class HierarchicalSO3GridSearch(eqx.Module):
     base_grid_res: int
     corr_mask: Optional[Float[Array, "H W"]]
     grid_search_batch_size: int
+    max_shift_in_angstroms: Optional[float]
 
     def __init__(
         self,
@@ -160,11 +166,15 @@ class HierarchicalSO3GridSearch(eqx.Module):
         n_candidates,
         corr_mask=None,
         grid_search_batch_size=64,
+        max_shift_in_angstroms=None,
     ):
         assert base_grid_res >= 1, "Base grid must be at least 1."
         assert n_rounds >= 0, "Number of rounds must be non-negative."
         assert n_candidates >= 1, "Number of candidates must be at least 1."
         assert grid_search_batch_size >= 1, "grid_search_batch_size must be at least 1."
+        assert max_shift_in_angstroms is None or max_shift_in_angstroms > 0, (
+            "max_shift_in_angstroms must be positive."
+        )
 
         self.base_grid_res = base_grid_res
         self.base_quats = grid_SO3(base_grid_res)
@@ -172,6 +182,25 @@ class HierarchicalSO3GridSearch(eqx.Module):
         self.n_candidates = n_candidates
         self.corr_mask = corr_mask
         self.grid_search_batch_size = grid_search_batch_size
+        self.max_shift_in_angstroms = (
+            None if max_shift_in_angstroms is None else float(max_shift_in_angstroms)
+        )
+
+    def _correlation_mask(
+        self, image_config: cxs.BasicImageConfig
+    ) -> Optional[Float[Array, "H W"]]:
+        """`corr_mask`, restricted to offsets within `max_shift_in_angstroms`.
+
+        The cross-correlation image is laid out on the image's own coordinate
+        grid -- zero offset at the box centre -- so the offset a pixel stands for
+        is its physical coordinate.
+        """
+        if self.max_shift_in_angstroms is None:
+            return self.corr_mask
+        offsets = image_config.get_coordinate_grid(physical=True)
+        within = jnp.linalg.norm(offsets, axis=-1) <= self.max_shift_in_angstroms
+        within = within.astype(offsets.dtype)
+        return within if self.corr_mask is None else self.corr_mask * within
 
     def __call__(
         self,
@@ -210,13 +239,14 @@ class HierarchicalSO3GridSearch(eqx.Module):
         """
 
         image = jnp.asarray(image)
+        corr_mask = self._correlation_mask(image_config)
         losses, offsets = _loss_for_grid_search(
             self.base_quats,
             volume,
             image,
             image_config,
             transfer_theory,
-            self.corr_mask,
+            corr_mask,
             whitening_filter,
             whiten_calculated_images,
             lowpass_filter,
@@ -246,7 +276,7 @@ class HierarchicalSO3GridSearch(eqx.Module):
                 image,
                 image_config,
                 transfer_theory,
-                self.corr_mask,
+                corr_mask,
                 whitening_filter,
                 whiten_calculated_images,
                 lowpass_filter,
@@ -271,7 +301,7 @@ class HierarchicalSO3GridSearch(eqx.Module):
                     image,
                     image_config,
                     transfer_theory,
-                    self.corr_mask,
+                    corr_mask,
                     whitening_filter,
                     whiten_calculated_images,
                     lowpass_filter,
