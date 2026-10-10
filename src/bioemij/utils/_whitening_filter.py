@@ -42,7 +42,30 @@ def compute_whitening_filter(
     n_images_in_parallel: int,
     target_box_size: Optional[int],
     padding_factor: float,
+    *,
+    max_images: Optional[int] = None,
+    radially_average: bool = False,
+    seed: int = 0,
 ):
+    """Estimate a Fourier-space whitening filter from the particle images.
+
+    The noise power spectrum is measured in the corners of the images, outside
+    the circle inscribed in the box where the particle sits, and the filter is
+    `1 / sqrt(noise power)` with its zero-frequency term set to zero. Pass it as
+    `whitening_filter` with `whiten_experimental_images` and
+    `whiten_calculated_images` so that both images are compared with white noise.
+
+    **Arguments:**
+    - `max_images`:
+        Estimate from this many images, drawn at random with `seed`, instead of
+        reading the whole dataset. A few thousand are plenty.
+    - `radially_average`:
+        Average the noise power over rings of equal spatial frequency. Removes
+        the per-pixel scatter of the estimate, and the cross-shaped pattern the
+        square corner mask leaves in it, by assuming the noise is isotropic.
+    - `padding_factor`:
+        Size of the returned filter relative to the image, for padded images.
+    """
     image_config = relion_dataset.parameter_file[0]["image_config"]
     if target_box_size is not None:
         image_config = _get_downsampled_image_config(image_config, target_box_size)
@@ -50,7 +73,11 @@ def compute_whitening_filter(
     original_shape = image_config.shape
     whitening_mask = _get_corner_mask_nopad(image_config, original_shape)
 
-    n_images = len(relion_dataset)
+    indices = np.arange(len(relion_dataset))
+    if max_images is not None and max_images < len(indices):
+        rng = np.random.default_rng(seed)
+        indices = np.sort(rng.choice(indices, size=max_images, replace=False))
+    n_images = len(indices)
     n_mask_pixels = jnp.sum(whitening_mask)
 
     # compute for one image to check the shape
@@ -63,7 +90,7 @@ def compute_whitening_filter(
         desc="Computing whitening filter",
         unit="batch",
     ):
-        batch_indices = np.arange(i, min(i + n_images_in_parallel, n_images))
+        batch_indices = indices[i : i + n_images_in_parallel]
         stack = relion_dataset[batch_indices]
         images = jnp.asarray(stack["images"])
         if target_box_size is not None:
@@ -80,6 +107,8 @@ def compute_whitening_filter(
     mean_est /= n_images * n_mask_pixels
     noise_psd_est /= n_images * n_mask_pixels
     noise_psd_est = noise_psd_est.at[0, 0].add(-(mean_est**2))
+    if radially_average:
+        noise_psd_est = _radially_average(noise_psd_est)
     whitening_filter = jnp.where(
         jnp.isclose(noise_psd_est, 0.0),
         0.0,
@@ -89,12 +118,29 @@ def compute_whitening_filter(
         int(image_config.shape[0] * padding_factor),
         int(image_config.shape[1] * padding_factor),
     )
+    # The real-space kernel sits at the corners of the array (zero frequency
+    # first); centre it before padding so the padding goes around it.
     whitening_filter = jnp.fft.fftn(
-        cxim.pad_to_shape(jnp.fft.ifftn(whitening_filter), padded_shape)
+        jnp.fft.ifftshift(
+            cxim.pad_to_shape(
+                jnp.fft.fftshift(jnp.fft.ifftn(whitening_filter)), padded_shape
+            )
+        )
     ).real
     whitening_filter = whitening_filter.at[0, 0].set(0.0)
 
     return whitening_filter
+
+
+def _radially_average(power: Float[Array, "y x"]) -> Float[Array, "y x"]:
+    """Average a power spectrum (unshifted FFT layout) over rings of equal frequency."""
+    ny, nx = power.shape
+    frequency = np.hypot(np.fft.fftfreq(ny)[:, None], np.fft.fftfreq(nx)[None, :])
+    ring = np.rint(frequency * max(ny, nx)).astype(int)
+    ring_mean = np.bincount(ring.ravel(), weights=np.asarray(power).ravel()) / np.bincount(
+        ring.ravel()
+    )
+    return jnp.asarray(ring_mean[ring], dtype=power.dtype)
 
 
 @jax.jit
